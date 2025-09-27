@@ -70,28 +70,29 @@ def save_pending(data):
     except Exception as e:
         logging.error(f"save_pending error: {e}")
 
-# Inline tugmalar yaratish (kanallar + qayta urinish)
-def get_markup(retry=False):
-    buttons = [[InlineKeyboardButton(text=f"📢 {ch['name']}", url=ch['link'])] for ch in CHANNELS]
-    if retry:
-        buttons.append([InlineKeyboardButton(text="🔄 Qayta urinish", callback_data="retry_code")])
-    else:
-        buttons.append([InlineKeyboardButton(text="✅ Men obuna bo‘ldim", callback_data="confirmed_request")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 # /start handler
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
     pending = load_pending()
 
+    # Agar foydalanuvchi tasdiqlangan bo‘lsa
     if pending.get(user_id, {}).get("confirmed"):
-        await message.answer("✅ Siz allaqachon tasdiqlangansiz! Kino kodini yuboring:", reply_markup=get_markup())
+        await message.answer("✅ Siz allaqachon tasdiqlangansiz! Kino kodini yuboring:")
         await state.set_state(CinemaStates.waiting_for_code)
         return
 
-    text = "🎬 Assalomu alaykum!\n\nQuyidagi 4 ta kanallarga *obuna bo'ling*:\n"
-    await message.answer(text, reply_markup=get_markup())
+    text = "🎬 Assalomu alaykum!\n\nQuyidagi 4 ta kanallarga obuna bo'ling:\n"
+
+    # inline tugmalar (kanallar uchun)
+    buttons = [[InlineKeyboardButton(text=f"📢 {ch['name']}", url=ch['link'])] for ch in CHANNELS]
+
+    # "Men obuna bo‘ldim" tugmasi
+    buttons.append([InlineKeyboardButton(text="✅ Men obuna bo‘ldim", callback_data="confirmed_request")])
+
+    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await message.answer(text, reply_markup=markup, parse_mode="Markdown")
 
 # chat_join_request event
 @dp.chat_join_request()
@@ -122,20 +123,21 @@ async def confirmed_request(callback: types.CallbackQuery, state: FSMContext):
     joined = set(user_data.get("joined_channels", []))
     required = {ch["id"] for ch in CHANNELS}
 
+    # Agar barcha kanallarga join qilinmagan bo‘lsa
     if not required.issubset(joined):
         not_requested = [ch["name"] for ch in CHANNELS if ch["id"] not in joined]
-        text = "❌ Siz quyidagi kanallarga hali *obuna bo'lmagansiz* :\n\n"
+        text = "❌ Siz quyidagi kanallarga hali obuna bo'lmadingiz:\n\n"
         for l in not_requested:
             text += f"➡️ {l}\n"
-        text += "\nIltimos, har bir kanalga Join Request yuboring."
+        text += "\nIltimos, har bir kanalga obuna bo'ling."
         await callback.answer()
-        await callback.message.edit_text(text, reply_markup=get_markup())
+        await callback.message.edit_text(text, reply_markup=callback.message.reply_markup, parse_mode="Markdown")
         return
 
+    # Tasdiqlash va inline tugmalarni yo‘q qilish
     pending[user_key] = {"confirmed": True, "joined_channels": list(joined)}
     save_pending(pending)
-
-    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (masalan: 2015).", reply_markup=get_markup())
+    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (masalan: 2015).")
     await state.set_state(CinemaStates.waiting_for_code)
 
 # Kino kodi qabul qilish
@@ -153,19 +155,13 @@ async def receive_code(message: types.Message, state: FSMContext):
                 ADMIN_ID,
                 f"🎬 Kino yuborildi: {message.from_user.full_name} ({user_key}) -> kod {code}"
             )
-            # ✅ State saqlanadi, foydalanuvchi yana kod yuborishi mumkin
-            await state.set_state(CinemaStates.waiting_for_code)
+            await state.clear()
+            return
         else:
-            text = "❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing."
-            await message.answer(text, reply_markup=get_markup(retry=True))
+            await message.answer("❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing.")
+            return
     else:
-        await message.answer("⚠️ Avval barcha kanallarga obuna bo'ling yuboring va 'Men obuna bo‘ldim' tugmasini bosing.", reply_markup=get_markup())
-
-# Retry tugmasi callback
-@dp.callback_query(F.data == "retry_code")
-async def retry_code(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("🎬 Iltimos, kino kodini yuboring (masalan: 2015):", reply_markup=get_markup())
-    await state.set_state(CinemaStates.waiting_for_code)
+        await message.answer("⚠️ Avval barcha kanallarga Join Request yuboring va 'Men obuna bo‘ldim' tugmasini bosing.")
 
 # Flask health-check
 app = Flask("bot_health")
