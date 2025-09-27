@@ -11,7 +11,7 @@ from aiogram.fsm.state import StatesGroup, State
 from dotenv import load_dotenv
 from flask import Flask
 
-# .env dan o'qish
+# .env dan o‘qish
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -44,7 +44,7 @@ PENDING_FILE = "pending.json"
 
 # Bot & dispatcher
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()  # ✅ aiogram 3.x da botni bu yerga berilmaydi
 
 logging.basicConfig(level=logging.INFO)
 
@@ -70,7 +70,7 @@ def save_pending(data):
     except Exception as e:
         logging.error(f"save_pending error: {e}")
 
-# /start handler — kanal linklarini chiqaradi
+# /start handler
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
@@ -92,61 +92,50 @@ async def start_handler(message: types.Message, state: FSMContext):
 
     await message.answer(text, reply_markup=markup, parse_mode="Markdown")
 
-# chat_join_request event — foydalanuvchi kanallardan biriga join request yuborganda ishlaydi
+# chat_join_request event
 @dp.chat_join_request()
 async def on_chat_join_request(update: types.ChatJoinRequest):
     uid = str(update.from_user.id)
     pending = load_pending()
-    # agar birinchi martasi bo'lsa, ro'yxatga qo'shamiz
-    # biz faqat "joined" flag qo'yamiz; hamma kanallarga join request berilganini tekshirish callbackda qilamiz
     pending.setdefault(uid, {})["joined_any"] = True
     save_pending(pending)
-    # adminga xabar (ixtiyoriy)
     try:
         await bot.send_message(ADMIN_ID, f"📥 Join request: {update.from_user.full_name} ({uid})")
     except Exception:
         pass
 
-# Obuna tekshirish tugmasi bosilganda — hamma kanallarga join request yuborilganmi tekshiramiz
+# Obuna tekshirish
 @dp.callback_query(F.data == "confirmed_request")
 async def confirmed_request(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     user_key = str(user_id)
 
-    # tekshirish: har bir kanal bo'yicha get_chat_member, agar status "left" bo'lsa -> join request ham bo'lmagan
     not_requested = []
     for ch in CHANNELS:
         try:
             member = await bot.get_chat_member(ch["id"], user_id)
-            # agar user join request yuborgan lekin hali qabul qilinmagan bo'lsa — Telegram API ba'zan status "left" qaytaradi,
-            # shuning uchun biz ham chat_join_request orqali hamma joinlarni pending.json ga yozishni talab qilamiz.
             if member.status == "left":
-                # left => hali a'zo emas. lekin bu holda ham foydalanuvchi join request yuborgan bo'lishi mumkin;
-                # biz join_request event bilan solishtiramiz: pending faylda uid mavjud bo'lsa, join request yuborgan deb hisoblaymiz.
                 pending = load_pending()
                 if pending.get(user_key) and pending[user_key].get("joined_any"):
-                    # join_request event kelgan — demak u join request yuborgan, qabul qilinmagan
                     continue
                 not_requested.append(ch["link"])
         except Exception:
-            # agar get_chat_member xato bersa, shuni ham not_requested ga qo'shamiz
             not_requested.append(ch["link"])
 
     if not_requested:
         text = "❌ Siz quyidagi kanallarga hali *Join Request* yubormagansiz yoki bot ularni tekshira olmadi:\n\n"
         for l in not_requested:
             text += f"➡️ {l}\n"
-        text += "\nIltimos, har bir kanalga Join Request yuboring (yoki agar private kanal bo'lsa — invite linkdan)."
-        await callback.answer()  # callbackni bekor qilamiz
+        text += "\nIltimos, har bir kanalga Join Request yuboring."
+        await callback.answer()
         await callback.message.edit_text(text, reply_markup=callback.message.reply_markup, parse_mode="Markdown")
         return
 
-    # agar hamma kanallarga join_request yuborgan bo'lsa (yoki bot ularni a'zo deb topgan bo'lsa)
     pending = load_pending()
     pending[user_key] = {"confirmed": True}
     save_pending(pending)
 
-    await callback.message.edit_text("✅ Tabriklaymiz! Hammasiga Join Request yubordingiz — endi /code buyrug'ini yozib, kinoning kodini yuboring.")
+    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (/code).")
     await state.set_state(CinemaStates.waiting_for_code)
 
 # Kino kodi qabul qilish
@@ -167,9 +156,9 @@ async def receive_code(message: types.Message, state: FSMContext):
             await message.answer("❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing.")
             return
     else:
-        await message.answer("⚠️ Avval barcha kanallarga Join Request yuboring va 'Men obuna bo'ldim' tugmasini bosing.")
+        await message.answer("⚠️ Avval barcha kanallarga Join Request yuboring va 'Men obuna bo‘ldim' tugmasini bosing.")
 
-# Flask health-check (Render Web Service talab qiladi)
+# Flask health-check
 app = Flask("bot_health")
 
 @app.route("/")
@@ -178,20 +167,17 @@ def home():
 
 def run_flask():
     port = int(os.getenv("PORT", "5000"))
-    # Bind 0.0.0.0 shart — Render kerakli portni tekshiradi
     app.run(host="0.0.0.0", port=port)
 
 # Bot polling run
 async def run_bot():
     logging.info("Start polling")
-    await dp.start_polling(bot)
+    await dp.start_polling(bot)  # ✅ bot shu yerda ishlatiladi
 
 if __name__ == "__main__":
-    # Flaskni alohida threadda ishga tushiramiz (port 5000 yoki Render PORT)
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # Keyin asyncio loopda botni ishga tushiramiz
     try:
         asyncio.run(run_bot())
     except (KeyboardInterrupt, SystemExit):
