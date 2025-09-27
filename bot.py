@@ -76,13 +76,15 @@ async def start_handler(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
     pending = load_pending()
 
-    # Agar foydalanuvchi tasdiqlangan bo‘lsa
     if pending.get(user_id, {}).get("confirmed"):
-        await message.answer("✅ Siz allaqachon tasdiqlangansiz! Kino kodini yuboring:")
+        await message.answer(
+            "✅ Siz allaqachon tasdiqlangansiz! Kino kodini yuboring:",
+            reply_markup=None
+        )
         await state.set_state(CinemaStates.waiting_for_code)
         return
 
-    text = "🎬 Assalomu alaykum!\n\nQuyidagi 4 ta kanallarga obuna bo'ling:\n"
+    text = "🎬 Assalomu alaykum!\n\nQuyidagi kanallarga obuna bo'ling:\n"
 
     # inline tugmalar (kanallar uchun)
     buttons = [[InlineKeyboardButton(text=f"📢 {ch['name']}", url=ch['link'])] for ch in CHANNELS]
@@ -108,7 +110,10 @@ async def on_chat_join_request(update: types.ChatJoinRequest):
     save_pending(pending)
 
     try:
-        await bot.send_message(ADMIN_ID, f"📥 Join request: {update.from_user.full_name} ({uid}) -> {update.chat.title}")
+        await bot.send_message(
+            ADMIN_ID,
+            f"📥 Join request: {update.from_user.full_name} ({uid}) -> {update.chat.title}"
+        )
     except Exception:
         pass
 
@@ -123,21 +128,20 @@ async def confirmed_request(callback: types.CallbackQuery, state: FSMContext):
     joined = set(user_data.get("joined_channels", []))
     required = {ch["id"] for ch in CHANNELS}
 
-    # Agar barcha kanallarga join qilinmagan bo‘lsa
     if not required.issubset(joined):
         not_requested = [ch["name"] for ch in CHANNELS if ch["id"] not in joined]
-        text = "❌ Siz quyidagi kanallarga hali obuna bo'lmadingiz:\n\n"
-        for l in not_requested:
-            text += f"➡️ {l}\n"
-        text += "\nIltimos, har bir kanalga obuna bo'ling."
+        text = "❌ Siz quyidagi kanallarga hali obuna bo'lmagansiz:\n\n"
+        text += "\n".join(f"➡️ {l}" for l in not_requested)
+        text += "\n\nIltimos, har bir kanalga Join Request yuboring."
         await callback.answer()
         await callback.message.edit_text(text, reply_markup=callback.message.reply_markup, parse_mode="Markdown")
         return
 
-    # Tasdiqlash va inline tugmalarni yo‘q qilish
+    # Tasdiqlangan foydalanuvchi holati va FSMni ishga tushirish
     pending[user_key] = {"confirmed": True, "joined_channels": list(joined)}
     save_pending(pending)
-    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (masalan: 2015).")
+
+    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (masalan: 2015).", reply_markup=None)
     await state.set_state(CinemaStates.waiting_for_code)
 
 # Kino kodi qabul qilish
@@ -155,17 +159,16 @@ async def receive_code(message: types.Message, state: FSMContext):
                 ADMIN_ID,
                 f"🎬 Kino yuborildi: {message.from_user.full_name} ({user_key}) -> kod {code}"
             )
-            await state.clear()
+            # FSM holati saqlanadi, foydalanuvchi yana kod yuborishi mumkin
             return
         else:
             await message.answer("❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing.")
             return
     else:
-        await message.answer("⚠️ Avval barcha kanallarga Join Request yuboring va 'Men obuna bo‘ldim' tugmasini bosing.")
+        await message.answer("⚠️ Avval barcha kanallarga obuna bo'ling va 'Men obuna bo‘ldim' tugmasini bosing.")
 
 # Flask health-check
 app = Flask("bot_health")
-
 @app.route("/")
 def home():
     return "OK - bot ishlayapti"
