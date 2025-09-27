@@ -19,10 +19,10 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "6067594310"))
 
 # Kanal va kino sozlamalari
 CHANNELS = [
-    {"link": "https://t.me/+0HH1L-dHrLdmMTUy", "id": -1003053807994},
-    {"link": "https://t.me/+_tOVOccPH_cwMTcy", "id": -1002758258380},
-    {"link": "https://t.me/+24H2NggcXrFmNjUy", "id": -1002976392716},
-    {"link": "https://t.me/+nJuibwCPd0Q4NmE6", "id": -1002920857610}
+    {"name": "Kanal 1", "link": "https://t.me/+0HH1L-dHrLdmMTUy", "id": -1003053807994},
+    {"name": "Kanal 2", "link": "https://t.me/+_tOVOccPH_cwMTcy", "id": -1002758258380},
+    {"name": "Kanal 3", "link": "https://t.me/+24H2NggcXrFmNjUy", "id": -1002976392716},
+    {"name": "Kanal 4", "link": "https://t.me/+nJuibwCPd0Q4NmE6", "id": -1002920857610}
 ]
 
 MOVIES = {
@@ -44,7 +44,7 @@ PENDING_FILE = "pending.json"
 
 # Bot & dispatcher
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()  # ✅ aiogram 3.x da botni bu yerga berilmaydi
+dp = Dispatcher()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -70,37 +70,44 @@ def save_pending(data):
     except Exception as e:
         logging.error(f"save_pending error: {e}")
 
+# Inline tugmalar yaratish (kanallar + qayta urinish)
+def get_markup(retry=False):
+    buttons = [[InlineKeyboardButton(text=f"📢 {ch['name']}", url=ch['link'])] for ch in CHANNELS]
+    if retry:
+        buttons.append([InlineKeyboardButton(text="🔄 Qayta urinish", callback_data="retry_code")])
+    else:
+        buttons.append([InlineKeyboardButton(text="✅ Men obuna bo‘ldim", callback_data="confirmed_request")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 # /start handler
 @dp.message(Command("start"))
 async def start_handler(message: types.Message, state: FSMContext):
     user_id = str(message.from_user.id)
     pending = load_pending()
 
-    if pending.get(user_id) == "confirmed":
-        await message.answer("✅ Siz allaqachon tasdiqlangansiz! Kino kodini yuboring:")
+    if pending.get(user_id, {}).get("confirmed"):
+        await message.answer("✅ Siz allaqachon tasdiqlangansiz! Kino kodini yuboring:", reply_markup=get_markup())
         await state.set_state(CinemaStates.waiting_for_code)
         return
 
-    text = "🎬 Assalomu alaykum!\n\nQuyidagi 4 ta kanallarga *Join Request* yuboring:\n\n"
-    for ch in CHANNELS:
-        text += f"➡️ {ch['link']}\n"
-    text += "\nSo‘ngra pastdagi tugmani bosing:"
-
-    markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Men obuna bo‘ldim", callback_data="confirmed_request")]
-    ])
-
-    await message.answer(text, reply_markup=markup, parse_mode="Markdown")
+    text = "🎬 Assalomu alaykum!\n\nQuyidagi 4 ta kanallarga *obuna bo'ling*:\n"
+    await message.answer(text, reply_markup=get_markup())
 
 # chat_join_request event
 @dp.chat_join_request()
 async def on_chat_join_request(update: types.ChatJoinRequest):
     uid = str(update.from_user.id)
     pending = load_pending()
-    pending.setdefault(uid, {})["joined_any"] = True
+    user_data = pending.get(uid, {})
+    joined = user_data.get("joined_channels", [])
+    if update.chat.id not in joined:
+        joined.append(update.chat.id)
+    user_data["joined_channels"] = joined
+    pending[uid] = user_data
     save_pending(pending)
+
     try:
-        await bot.send_message(ADMIN_ID, f"📥 Join request: {update.from_user.full_name} ({uid})")
+        await bot.send_message(ADMIN_ID, f"📥 Join request: {update.from_user.full_name} ({uid}) -> {update.chat.title}")
     except Exception:
         pass
 
@@ -109,33 +116,26 @@ async def on_chat_join_request(update: types.ChatJoinRequest):
 async def confirmed_request(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     user_key = str(user_id)
+    pending = load_pending()
+    user_data = pending.get(user_key, {})
 
-    not_requested = []
-    for ch in CHANNELS:
-        try:
-            member = await bot.get_chat_member(ch["id"], user_id)
-            if member.status == "left":
-                pending = load_pending()
-                if pending.get(user_key) and pending[user_key].get("joined_any"):
-                    continue
-                not_requested.append(ch["link"])
-        except Exception:
-            not_requested.append(ch["link"])
+    joined = set(user_data.get("joined_channels", []))
+    required = {ch["id"] for ch in CHANNELS}
 
-    if not_requested:
-        text = "❌ Siz quyidagi kanallarga hali *Join Request* yubormagansiz yoki bot ularni tekshira olmadi:\n\n"
+    if not required.issubset(joined):
+        not_requested = [ch["name"] for ch in CHANNELS if ch["id"] not in joined]
+        text = "❌ Siz quyidagi kanallarga hali *obuna bo'lmagansiz* :\n\n"
         for l in not_requested:
             text += f"➡️ {l}\n"
         text += "\nIltimos, har bir kanalga Join Request yuboring."
         await callback.answer()
-        await callback.message.edit_text(text, reply_markup=callback.message.reply_markup, parse_mode="Markdown")
+        await callback.message.edit_text(text, reply_markup=get_markup())
         return
 
-    pending = load_pending()
-    pending[user_key] = {"confirmed": True}
+    pending[user_key] = {"confirmed": True, "joined_channels": list(joined)}
     save_pending(pending)
 
-    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (/code).")
+    await callback.message.edit_text("✅ Tabriklaymiz! Endi kino kodini yuboring (masalan: 2015).", reply_markup=get_markup())
     await state.set_state(CinemaStates.waiting_for_code)
 
 # Kino kodi qabul qilish
@@ -149,14 +149,23 @@ async def receive_code(message: types.Message, state: FSMContext):
         if code in MOVIES:
             file_id = MOVIES[code]
             await message.answer_document(file_id)
-            await bot.send_message(ADMIN_ID, f"🎬 Kino yuborildi: {message.from_user.full_name} ({user_key}) -> kod {code}")
-            await state.clear()
-            return
+            await bot.send_message(
+                ADMIN_ID,
+                f"🎬 Kino yuborildi: {message.from_user.full_name} ({user_key}) -> kod {code}"
+            )
+            # ✅ State saqlanadi, foydalanuvchi yana kod yuborishi mumkin
+            await state.set_state(CinemaStates.waiting_for_code)
         else:
-            await message.answer("❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing.")
-            return
+            text = "❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing."
+            await message.answer(text, reply_markup=get_markup(retry=True))
     else:
-        await message.answer("⚠️ Avval barcha kanallarga Join Request yuboring va 'Men obuna bo‘ldim' tugmasini bosing.")
+        await message.answer("⚠️ Avval barcha kanallarga obuna bo'ling yuboring va 'Men obuna bo‘ldim' tugmasini bosing.", reply_markup=get_markup())
+
+# Retry tugmasi callback
+@dp.callback_query(F.data == "retry_code")
+async def retry_code(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("🎬 Iltimos, kino kodini yuboring (masalan: 2015):", reply_markup=get_markup())
+    await state.set_state(CinemaStates.waiting_for_code)
 
 # Flask health-check
 app = Flask("bot_health")
@@ -172,7 +181,7 @@ def run_flask():
 # Bot polling run
 async def run_bot():
     logging.info("Start polling")
-    await dp.start_polling(bot)  # ✅ bot shu yerda ishlatiladi
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     flask_thread = threading.Thread(target=run_flask, daemon=True)
