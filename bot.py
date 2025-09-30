@@ -163,7 +163,7 @@ async def receive_code(message: types.Message, state: FSMContext):
             # FSM holati saqlanadi, foydalanuvchi yana kod yuborishi mumkin
             return
         else:
-            await message.answer("❌ Noto‘g‘ri kod! Iltimos, 2010–2021 orasidan birini yozing.")
+            await message.answer("❌ Noto‘g‘ri kod! Iltimos, 2000–2030 orasidan birini yozing.")
             return
     else:
         await message.answer("⚠️ Avval barcha kanallarga obuna bo'ling va 'Men obuna bo‘ldim' tugmasini bosing.")
