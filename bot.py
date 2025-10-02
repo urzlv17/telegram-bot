@@ -36,9 +36,8 @@ MOVIES = {
     "2017": "BAACAgIAAxkBAAIC7WjO9mXXhua2JLEz5gqVH22QTyN-AALECQACD26hSuwELeZvNazENgQ",
     "2018": "BAACAgIAAxkBAAIC72jO9nLnRkrhARD7tVrUxkAfs732AAJtHgACbiGQS87F6MIjcC1LNgQ",
     "2019": "BAACAgIAAxkBAAIC8WjO9n1mEKg4GMkoLNITPThCDiiyAAK6SQAC_BdYSA38_PngLAmXNgQ",
-    "2020": "BAACAgIAAxkBAAIC82jO9orOOqmR9rd6XQG_4RWlzctQAALpCQACy5koSl5i8GnIFuWVNg",
-    "2021": "BAACAgIAAxkBAAIC9WjO9pVmy2UaJQzP6RpCjnqTI6coAAI6PgACoJuZSh7vxJcLs5XDNgQ",
-    "2000": "BAACAgIAAxkBAAMCaNt7lzww_5xX_cmzRd7m4BpfRqkAAjklAALQ6OBJY_FgrrDB7ik2BA"
+    "2020": "BAACAgIAAxkBAAIC82jO9orOOqmR9rd6XQG_4RWlzctQAALpCQACy5koSl5i8GnIFuWVNgQ",
+    "2021": "BAACAgIAAxkBAAIC9WjO9pVmy2UaJQzP6RpCjnqTI6coAAI6PgACoJuZSh7vxJcLs5XDNgQ"
 }
 
 PENDING_FILE = "pending.json"
@@ -155,7 +154,9 @@ async def receive_code(message: types.Message, state: FSMContext):
     if pending.get(user_key) and pending[user_key].get("confirmed"):
         if code in MOVIES:
             file_id = MOVIES[code]
-            await message.answer_document(file_id)
+            caption_text = f"🎥 Kino kodi: {code}\n✅ Marhamat, tomosha qiling!"
+            await message.answer_document(file_id, caption=caption_text)
+
             await bot.send_message(
                 ADMIN_ID,
                 f"🎬 Kino yuborildi: {message.from_user.full_name} ({user_key}) -> kod {code}"
